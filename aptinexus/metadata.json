@@ -1,0 +1,8 @@
+{
+  "name": "AptiNexus — Career & Skill Intelligence",
+  "description": "AI-powered career and skill intelligence platform with live Gemini resume analysis, dynamic career & course projection, and scenario micro-assessments.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
