@@ -1,1 +1,0 @@
-Alembic migrations live in `versions/`. Run `alembic upgrade head` from the `backend/` directory after configuring `DATABASE_URL`.
