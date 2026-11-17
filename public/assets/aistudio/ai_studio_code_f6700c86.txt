@@ -1,0 +1,271 @@
+================================================================================
+APTINEXUS — GEMINI AI & LIVE BACKEND CONTINUATION PAYLOAD (.TXT)
+================================================================================
+
+ROLE & OBJECTIVE FOR THE RECEIVING AGENT:
+You are continuing development on the AptiNexus Career & Skill Intelligence
+platform from a newly imported/updated repository. Implement and wire all of
+the following live Gemini AI and database-backed features (removing all static
+mock bypasses and demo notifications).
+
+--------------------------------------------------------------------------------
+1. PRODUCT & ARCHITECTURAL REQUIREMENTS (CONFIRMED BY USER)
+--------------------------------------------------------------------------------
+1. Disable Static Mock Mode Completely:
+   - Never use `VITE_USE_MOCK=true`, `resumeSample`, `mockDashboard`, or
+     hardcoded `userSkills = ['Python', 'CAD Design', ...]`.
+   - `USE_MOCK` in `src/services/api/client.ts` must be `false` permanently.
+   - Normalize `VITE_API_BASE_URL` (auto-append `/api/v1` if a full origin URL
+     is provided without `/api/v1`).
+   - Detect HTML SPA fallback responses (`<!doctype html>`) in `client.ts` and
+     automatically retry `/api/v1`, `http://localhost:3000/api/v1`, and
+     `http://localhost:8000/api/v1`.
+   - In `server.ts`, mount a JSON 404 catch-all on `/api` before
+     `vite.middlewares` so unmatched API routes never return `index.html`.
+
+2. Remove All Demo Notifications & Static Header Red Dot:
+   - Remove hardcoded demo notifications (`"Sample notifications for the demo."`)
+     from `NotificationsPage.tsx` and the static red dot in `AppShell.tsx`.
+   - Implement `GET /api/v1/notifications` on both the Express server
+     (`server/store.ts` + `server.ts`) and FastAPI backend
+     (`backend/app/services/intelligence.py` + `backend/app/routers/catalogs.py`).
+   - Generate live notifications from the user's saved state:
+     * Unverified `Claimed` skills -> alert linking to
+       `/app/assessments?skill=<encodeURIComponent(skill)>`
+     * Latest quiz/assessment results (`>= 70%` vs `< 70%`)
+     * Top career compatibility match & highest-impact missing bridge skill
+     * Active roadmap tasks completed
+     * Weekly learning goal reminder (`settings.hours`)
+     * Profile completion alert if `< 85%` (linking to `/app/resume`)
+
+3. Live Gemini Resume Analysis & Profile Auto-Extraction (`POST /api/v1/resume/analyze`):
+   - Extract real text from uploaded `.pdf` (`unpdf` / `pypdf`) and `.docx`
+     (`mammoth` / `python-docx`) files on the server.
+   - Compare extracted resume text against the user's existing saved profile and
+     the canonical `SKILLS` catalog using Gemini structured JSON output.
+   - Return:
+     * `extracted`: items for all 10 profile sections (`education`, `subjects`,
+       `technical`, `soft`, `interests`, `experience`, `projects`,
+       `certifications`, `achievements`, `goals`)
+     * `suggestions`: `{ section, item, reason }` where `section` supports both
+       profile sections AND personal fields (`name`, `headline`, `location`)
+     * `profileCorrections`: `{ section, currentValue, suggestedValue, reason }`
+       (supporting `name`, `headline`, `location`, and all 10 sections)
+     * `skillNormalizations`: `{ rawSkill, canonicalSkill, reason }`
+     * `recommendedCareerIds`: top matching career IDs from the `CAREERS` catalog
+   - Provide one-click `Accept` and `Accept all` buttons in `ResumeAnalysisPage`
+     that persist changes directly to `/api/v1/profiles/me`.
+
+4. Dynamic Gemini Career & Course Advisor (`POST /api/v1/ai/recommendations`):
+   - Scan the user's live profile, projects, SkillProof evidence, and quiz
+     results against the `CAREERS`, `SKILLS`, and `RESOURCES` catalogs.
+   - Return structured JSON (`AiRecommendationsResult`):
+     * `summary`: personalized 2-3 sentence synthesis
+     * `careerTargets`: top 3 dynamic career recommendations with `careerId`,
+       `title`, `fitScore` (0-100), `rationale`, `matchedSkills`,
+       `missingCoreSkills`, `bridgeSkills`, `suggestedHeadline`
+     * `courseRecommendations`: 4-6 courses/resources from the catalog with
+       `resourceId`, `title`, `skill`, `type`, `level`, `url`, `reason`,
+       `targetCareerTitle`, `priority` (`Immediate` | `Next` | `Stretch`)
+     * `profileCorrections`: actionable edits to personal fields (`name`,
+       `headline`, `location`) or sections (`goals`, `interests`, `technical`,
+       etc.)
+     * `skillNormalizations`: canonical skill mappings
+   - Render via `AiAdvisorPanel.tsx` on:
+     * `ProfilePage.tsx` (`focus="all"`)
+     * `CareerDiscoveryPage.tsx` (`focus="careers"`)
+     * `CareerDetailPage.tsx` (`focus="courses"`, `focusCareerId={career.id}`)
+     * `SkillGapPage.tsx` (`focus="courses"`, `focusCareerId={career.id}`)
+     * `LearningResourcesPage.tsx` (`focus="courses"`)
+
+5. Gemini Micro-Tests for Claimed Skills (`POST /api/v1/ai/skill-quiz` & `/submit`):
+   - Generate a 4-question scenario-based multiple-choice micro-quiz for any
+     skill claimed in the user's profile (`technical` section) or skill catalog.
+   - Never expose answer keys to the client before submission: sign `{ skill,
+     correctAnswers, explanations, exp }` with HMAC-SHA256 into `quizToken`.
+   - On `POST /api/v1/ai/skill-quiz/submit`, verify `quizToken`, score the
+     submitted answers, return per-question explanations, and if `percentage >= 70`,
+     mark `verified: true` (`statusUpgrade: 'Practised'`).
+   - Save the result to `/api/v1/assessments/results` so the skill automatically
+     upgrades from `Claimed` to `Practised` across Dashboard, SkillProof, Skill
+     Explorer, Skill Gap Analysis, and 3D SkillGraph.
+
+6. Live Data Across All Pages (Zero Static Fallbacks):
+   - `GET /api/v1/careers/matches` returns all careers sorted by live
+     compatibility with `matched: string[]` and `missing: string[]`.
+   - `CareerComparisonPage`, `CareerDetailPage`, `SkillExplorerPage`,
+     `SkillGapPage`, `RoadmapPage`, `SkillProofPage`, `WhatIfPage`,
+     `DashboardPage`, and `AnalyticsPage` all compute statuses and scores from
+     the user's live profile, projects, evidence, and assessment results.
+
+--------------------------------------------------------------------------------
+2. SHARED TYPESCRIPT INTERFACES (`src/types/index.ts`)
+--------------------------------------------------------------------------------
+export type SkillStatus = 'Not started' | 'Claimed' | 'Practised' | 'Demonstrated' | 'Verified'
+
+export interface User {
+  id: string
+  name: string
+  email: string
+  headline: string
+}
+
+export interface CareerMatch {
+  id: string
+  title: string
+  category: string
+  compatibility: number
+  missingSkills: number
+  matched?: string[]
+  missing?: string[]
+}
+
+export interface ProgressPoint {
+  month: string
+  skills: number
+  demonstrated: number
+}
+
+export interface DashboardData {
+  readiness: number
+  skillCounts: Record<SkillStatus, number>
+  careers: CareerMatch[]
+  progress: ProgressPoint[]
+  strengths: string[]
+  focusSkills: { name: string; priority: string; career: string }[]
+  activities: { id: string; text: string; when: string }[]
+}
+
+export type NotificationCategory =
+  | 'Learning reminder'
+  | 'Roadmap milestone'
+  | 'Skill recommendation'
+  | 'Assessment result'
+  | 'Profile update'
+
+export interface NotificationItem {
+  id: string
+  cat: NotificationCategory
+  title: string
+  body: string
+  when: string
+  actionPath?: string
+  actionLabel?: string
+}
+
+export type ProfileSectionId =
+  | 'name'
+  | 'headline'
+  | 'location'
+  | 'education'
+  | 'subjects'
+  | 'technical'
+  | 'soft'
+  | 'interests'
+  | 'experience'
+  | 'projects'
+  | 'certifications'
+  | 'achievements'
+  | 'goals'
+
+export interface ProfileCorrection {
+  section: ProfileSectionId
+  currentValue?: string
+  suggestedValue: string
+  reason: string
+}
+
+export interface SkillNormalization {
+  rawSkill: string
+  canonicalSkill: string
+  reason: string
+}
+
+export interface AiCareerTarget {
+  careerId: string
+  title: string
+  fitScore: number
+  rationale: string
+  matchedSkills: string[]
+  missingCoreSkills: string[]
+  bridgeSkills: string[]
+  suggestedHeadline?: string
+}
+
+export interface AiCourseRecommendation {
+  resourceId?: string
+  title: string
+  skill: string
+  type: string
+  level: string
+  url: string
+  reason: string
+  targetCareerTitle: string
+  priority: 'Immediate' | 'Next' | 'Stretch'
+}
+
+export interface AiRecommendationsResult {
+  summary: string
+  careerTargets: AiCareerTarget[]
+  courseRecommendations: AiCourseRecommendation[]
+  profileCorrections: ProfileCorrection[]
+  skillNormalizations: SkillNormalization[]
+  generatedBy: string
+}
+
+export interface SkillMicroQuizQuestion {
+  q: string
+  options: string[]
+}
+
+export interface SkillMicroQuiz {
+  skill: string
+  title: string
+  quizToken: string
+  questions: SkillMicroQuizQuestion[]
+  generatedBy: string
+}
+
+export interface SkillMicroQuizSubmission {
+  skill: string
+  score: number
+  total: number
+  percentage: number
+  verified: boolean
+  statusUpgrade: 'Practised' | 'Claimed'
+  correctAnswers: number[]
+  explanations: string[]
+  feedback: string
+}
+
+export interface ResumeSuggestion {
+  section: ProfileSectionId
+  item: string
+  reason?: string
+}
+
+export interface ResumeAnalysis {
+  fileName: string
+  summary: string
+  extracted: Record<string, string[]>
+  suggestions: ResumeSuggestion[]
+  profileCorrections?: ProfileCorrection[]
+  skillNormalizations?: SkillNormalization[]
+  recommendedCareerIds?: string[]
+  missingSections: string[]
+  generatedBy?: string
+}
+
+--------------------------------------------------------------------------------
+3. API ENDPOINT SUMMARY (`server.ts` & `backend/app/routers/*`)
+--------------------------------------------------------------------------------
+- `GET  /api/v1/notifications`           -> Live alerts from profile, quizzes, gaps, roadmap
+- `GET  /api/v1/notifications/read`      -> Read notification IDs
+- `PUT  /api/v1/notifications/read`      -> Persist read notification IDs
+- `GET  /api/v1/careers/matches`         -> All careers sorted by live compatibility + matched/missing arrays
+- `GET  /api/v1/analytics/dashboard`     -> Live readiness, skillCounts, careers, focusSkills, activities
+- `POST /api/v1/ai/recommendations`      -> Gemini dynamic career targets, courses, profile corrections
+- `POST /api/v1/ai/skill-quiz`           -> Gemini 4-question scenario check + HMAC quizToken
+- `POST /api/v1/ai/skill-quiz/submit`    -> Server-side HMAC grading + explanations + Practised upgrade
+- `POST /api/v1/resume/analyze`          -> PDF/DOCX extraction + Gemini structured profile/skill suggestions
+================================================================================
